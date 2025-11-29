@@ -1,36 +1,86 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# JointEdit
 
-## Getting Started
+**Timestamped video feedback — fast.**
 
-First, run the development server:
+Get precise, timestamped feedback on your videos. Share a link, collaborate in real-time, and streamline your video review process.
+
+## 🚀 Features
+
+- **Guest Flow**: Paste a video link, get a shareable review link instantly (no signup required)
+- **Timestamped Comments**: Add comments directly on the video timeline
+- **Real-time Collaboration**: See comments appear instantly with Supabase Realtime
+- **Multi-platform Support**: YouTube, Vimeo, TikTok, Instagram, Google Drive, Dropbox
+- **Pro Features**: Unlimited projects, password protection, custom branding, exports (PDF/CSV/SRT), version control
+
+## 🛠️ Tech Stack
+
+- **Frontend/API**: Next.js 14+ (App Router), TypeScript, Tailwind CSS
+- **Backend**: Supabase (Auth, Postgres, Realtime, Storage)
+- **Payments**: Paddle
+- **Email**: Resend
+- **Video Player**: React Player
+- **Monitoring**: Sentry
+- **Analytics**: Google Analytics 4
+- **CDN/Security**: Cloudflare
+
+## 📦 Installation
 
 ```bash
+# Clone the repository
+git clone git@github.com:AbdulMohiz-01/JoinEdit.git
+cd JoinEdit
+
+# Install dependencies
+npm install
+
+# Set up environment variables
+cp .env.example .env
+# Edit .env with your API keys
+
+# Run development server
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) to see the app.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 🏗️ Development Status
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### ✅ Completed Iterations
 
-## Learn More
+- **Iteration 1.1**: Next.js Project Setup
+  - Next.js 14+ with App Router, TypeScript, Tailwind CSS
+  - Core dependencies installed (Supabase, Framer Motion, Zod, React Hook Form)
+  - Project structure created
+  - Environment variables template
 
-To learn more about Next.js, take a look at the following resources:
+### 🚧 In Progress
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- **Iteration 1.2**: Supabase Setup & Database Schema
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### 📋 Upcoming
 
-## Deploy on Vercel
+See [implementation_plan.md](.gemini/antigravity/brain/75198d20-8249-41b7-92c7-760150e13b8f/implementation_plan.md) for the complete modular development plan.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## 📝 Environment Variables
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Required environment variables (see `.env.example`):
+
+- `NEXT_PUBLIC_SUPABASE_URL` - Supabase project URL
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY` - Supabase anonymous key
+- `SUPABASE_SERVICE_ROLE_KEY` - Supabase service role key
+- `YOUTUBE_API_KEY` - YouTube Data API v3 key
+- `PADDLE_*` - Paddle payment integration
+- `RESEND_API_KEY` - Resend email API key
+- `NEXT_PUBLIC_SENTRY_DSN` - Sentry error monitoring
+
+## 🤝 Contributing
+
+This is a modular development project. Each iteration is self-contained and can be built independently. See the implementation plan for details.
+
+## 📄 License
+
+MIT
+
+## 👨‍💻 Author
+
+Built with ❤️ by the JointEdit team
