@@ -29,27 +29,40 @@ export function HeroInput() {
         setIsLoading(true);
 
         try {
-            // Call metadata API
-            const response = await fetch("/api/video/metadata", {
+            // Step 1: Fetch video metadata
+            const metadataResponse = await fetch("/api/video/metadata", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ videoUrl }),
             });
 
-            const data = await response.json();
+            const metadataData = await metadataResponse.json();
 
-            if (!response.ok) {
-                throw new Error(data.error || "Failed to fetch video");
+            if (!metadataResponse.ok) {
+                throw new Error(metadataData.error || "Failed to fetch video");
             }
 
-            // TODO: Create temp project and redirect to /r/[slug]
-            console.log("Video metadata:", data);
+            // Step 2: Create temp project
+            const projectResponse = await fetch("/api/projects/temp-create", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    videoUrl,
+                    videoMetadata: metadataData.data,
+                    title: metadataData.data.title,
+                }),
+            });
 
-            // For now, just show success
-            alert(`Video found: ${data.data.title}`);
+            const projectData = await projectResponse.json();
+
+            if (!projectResponse.ok) {
+                throw new Error(projectData.error || "Failed to create project");
+            }
+
+            // Step 3: Redirect to review page
+            window.location.href = projectData.data.shareUrl;
         } catch (err: any) {
             setError(err.message || "Something went wrong. Please try again.");
-        } finally {
             setIsLoading(false);
         }
     };
