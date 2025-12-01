@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import { notFound } from 'next/navigation';
+import { ReviewInterface } from '@/components/project/review-interface';
 
 interface ReviewPageProps {
     params: {
@@ -50,61 +51,57 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
         .from('videos')
         .select('*')
         .eq('project_id', project.id)
-        .order('created_at', { ascending: true });
+        .order('created_at', { ascending: true }) as any;
+
+    const activeVideo = videos && videos.length > 0 ? videos[0] : null;
+
+    // Fetch initial comments for the active video
+    let initialComments: any[] = [];
+    if (activeVideo) {
+        const { data: comments } = await supabase
+            .from('comments')
+            .select('*')
+            .eq('video_id', activeVideo.id)
+            .order('timestamp_seconds', { ascending: true });
+
+        if (comments) {
+            initialComments = comments;
+        }
+    }
 
     return (
-        <div className="min-h-screen bg-black text-white">
-            <div className="container mx-auto px-4 py-8">
-                <div className="mb-8">
-                    <h1 className="text-4xl font-bold mb-2">{project.title}</h1>
-                    {project.description && (
-                        <p className="text-zinc-400">{project.description}</p>
-                    )}
-                    {project.is_temp && project.expires_at && (
-                        <p className="mt-2 text-sm text-yellow-400">
-                            ⏰ Expires: {new Date(project.expires_at).toLocaleString()}
-                        </p>
+        <div className="h-screen flex flex-col bg-black text-white overflow-hidden">
+            {/* Header */}
+            <header className="border-b border-white/10 bg-zinc-900/50 backdrop-blur-md shrink-0 z-50">
+                <div className="container mx-auto px-4 h-16 flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                        <h1 className="text-lg font-bold truncate max-w-md">{project.title}</h1>
+                        {project.is_temp && project.expires_at && (
+                            <span className="text-xs font-mono text-yellow-500 bg-yellow-500/10 px-2 py-1 rounded-full">
+                                Expires in 24h
+                            </span>
+                        )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <button className="text-sm font-medium text-zinc-400 hover:text-white transition">Share</button>
+                    </div>
+                </div>
+            </header>
+
+            <div className="flex-1 overflow-hidden">
+                <div className="container mx-auto px-4 py-6 h-full">
+                    {activeVideo ? (
+                        <ReviewInterface
+                            project={project}
+                            video={activeVideo}
+                            initialComments={initialComments}
+                        />
+                    ) : (
+                        <div className="flex flex-col items-center justify-center h-64 rounded-xl border border-white/10 bg-zinc-900/50">
+                            <p className="text-zinc-400">No videos found in this project.</p>
+                        </div>
                     )}
                 </div>
-
-                {videos && videos.length > 0 ? (
-                    <div className="grid gap-6">
-                        {videos.map((video: any) => (
-                            <div
-                                key={video.id}
-                                className="rounded-xl border border-white/10 bg-zinc-900/50 p-6"
-                            >
-                                <div className="flex gap-4">
-                                    {video.thumbnail_url && (
-                                        <img
-                                            src={video.thumbnail_url}
-                                            alt={video.title}
-                                            className="h-32 w-48 rounded-lg object-cover"
-                                        />
-                                    )}
-                                    <div className="flex-1">
-                                        <h3 className="text-xl font-bold mb-2">{video.title}</h3>
-                                        <p className="text-sm text-zinc-400 mb-4">
-                                            Provider: {video.provider} • Duration: {Math.floor(video.duration_seconds / 60)}:{(video.duration_seconds % 60).toString().padStart(2, '0')}
-                                        </p>
-                                        <a
-                                            href={video.video_url}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="inline-block rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold hover:bg-blue-500 transition"
-                                        >
-                                            Watch Video →
-                                        </a>
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                ) : (
-                    <div className="rounded-xl border border-white/10 bg-zinc-900/50 p-12 text-center">
-                        <p className="text-zinc-400">No videos in this project yet.</p>
-                    </div>
-                )}
             </div>
         </div>
     );
