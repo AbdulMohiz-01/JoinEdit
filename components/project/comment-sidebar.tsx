@@ -5,10 +5,12 @@ import { createClient } from "@/lib/supabase/client";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowUp, Clock, MessageSquare, X } from "lucide-react";
+import { ArrowUp, Clock, MessageSquare, X, Edit2 } from "lucide-react";
 import { formatDuration } from "@/lib/video-utils";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { GuestNameModal } from "@/components/project/guest-name-modal";
+import { getGuestSessionToken, setGuestSessionToken } from "@/lib/guest-session";
 
 interface Comment {
     id: string;
@@ -33,10 +35,34 @@ export function CommentSidebar({ projectId, videoId, currentTime, pausedAtTime, 
     const [newComment, setNewComment] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [authorName, setAuthorName] = useState("");
+    const [guestSessionId, setGuestSessionId] = useState<string | null>(null);
+    const [guestSessionToken, setGuestSessionTokenState] = useState<string | null>(null);
+    const [showNameModal, setShowNameModal] = useState(false);
     const [commentTimestamp, setCommentTimestamp] = useState(0);
     const scrollRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const supabase = createClient();
+
+    // Load guest session on mount
+    useEffect(() => {
+        const loadGuestSession = async () => {
+            const token = getGuestSessionToken();
+            if (token) {
+                try {
+                    const response = await fetch(`/api/guest/get-session?token=${token}`);
+                    const data = await response.json();
+                    if (data.session && data.session.projectId === projectId) {
+                        setAuthorName(data.session.name);
+                        setGuestSessionId(data.session.id);
+                        setGuestSessionTokenState(token);
+                    }
+                } catch (error) {
+                    console.error('Error loading guest session:', error);
+                }
+            }
+        };
+        loadGuestSession();
+    }, [projectId]);
 
     // Auto-set timestamp when video is paused
     useEffect(() => {
@@ -107,9 +133,65 @@ export function CommentSidebar({ projectId, videoId, currentTime, pausedAtTime, 
         }
     }, [newComment]);
 
+    const handleGuestNameSubmit = async (name: string) => {
+        try {
+            const response = await fetch('/api/guest/create-session', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ projectId, name }),
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                setAuthorName(data.name);
+                setGuestSessionId(data.guestSessionId);
+                setGuestSessionTokenState(data.sessionToken);
+                setGuestSessionToken(data.sessionToken);
+            }
+        } catch (error) {
+            console.error('Error creating guest session:', error);
+        } finally {
+            setShowNameModal(false);
+        }
+    };
+
+    const handleNameChange = async (newName: string) => {
+        if (!guestSessionToken) return;
+
+        try {
+            const response = await fetch('/api/guest/update-name', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sessionToken: guestSessionToken, newName }),
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                setAuthorName(data.name);
+            }
+        } catch (error) {
+            console.error('Error updating name:', error);
+        } finally {
+            setShowNameModal(false);
+        }
+    };
+
+    const handleTextareaFocus = () => {
+        // Show name modal if no session exists
+        if (!authorName && !guestSessionId) {
+            setShowNameModal(true);
+        }
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!newComment.trim()) return;
+
+        // If no session, show modal first
+        if (!authorName && !guestSessionId) {
+            setShowNameModal(true);
+            return;
+        }
 
         setIsSubmitting(true);
         const name = authorName || "Guest";
@@ -124,6 +206,7 @@ export function CommentSidebar({ projectId, videoId, currentTime, pausedAtTime, 
                     content: newComment,
                     timestamp: commentTimestamp,
                     authorName: name,
+                    guestSessionId: guestSessionId,
                 }),
             });
 
@@ -246,6 +329,18 @@ export function CommentSidebar({ projectId, videoId, currentTime, pausedAtTime, 
                         {pausedAtTime !== null && (
                             <span className="text-[10px] text-zinc-500">(paused)</span>
                         )}
+                        {authorName && (
+                            <>
+                                <span className="text-[10px] text-zinc-500">•</span>
+                                <button
+                                    onClick={() => setShowNameModal(true)}
+                                    className="flex items-center gap-1 text-[10px] text-zinc-400 hover:text-blue-400 transition-colors"
+                                >
+                                    <span>{authorName}</span>
+                                    <Edit2 className="h-2.5 w-2.5" />
+                                </button>
+                            </>
+                        )}
                     </div>
 
                     <div className="flex items-center gap-1">
@@ -286,6 +381,7 @@ export function CommentSidebar({ projectId, videoId, currentTime, pausedAtTime, 
                     value={newComment}
                     onChange={(e) => setNewComment(e.target.value)}
                     onKeyDown={handleKeyDown}
+                    onFocus={handleTextareaFocus}
                     placeholder="Type your comment..."
                     className="w-full min-h-[60px] max-h-[120px] bg-zinc-950/50 border-white/10 focus-visible:ring-blue-500/50 resize-none py-2.5 px-3 text-sm leading-relaxed overflow-y-auto"
                     disabled={isSubmitting}
@@ -298,6 +394,12 @@ export function CommentSidebar({ projectId, videoId, currentTime, pausedAtTime, 
                     </span>
                 </div>
             </div>
+
+            {/* Guest Name Modal */}
+            <GuestNameModal
+                open={showNameModal}
+                onSubmit={authorName ? handleNameChange : handleGuestNameSubmit}
+            />
         </div>
     );
 }
