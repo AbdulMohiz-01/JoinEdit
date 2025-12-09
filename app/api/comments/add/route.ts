@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server';
 export async function POST(request: Request) {
     try {
         const body = await request.json();
-        const { projectId, videoId, content, timestamp, authorName, guestSessionId } = body;
+        const { projectId, videoId, content, timestamp, authorName, guestSessionId, parentCommentId } = body;
 
         if (!projectId || !videoId || !content) {
             return NextResponse.json(
@@ -25,6 +25,7 @@ export async function POST(request: Request) {
                 timestamp_seconds: timestamp,
                 author_name: authorName || 'Guest',
                 guest_session_id: guestSessionId || null,
+                parent_comment_id: parentCommentId || null,
             } as any)
             .select()
             .single();

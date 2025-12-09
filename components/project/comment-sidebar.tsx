@@ -11,6 +11,13 @@ import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { GuestNameModal } from "@/components/project/guest-name-modal";
 import { getGuestSessionToken, setGuestSessionToken } from "@/lib/guest-session";
+import { CommentItem } from "@/components/project/comment-item";
+
+interface Reaction {
+    type: string;
+    count: number;
+    hasReacted: boolean;
+}
 
 interface Comment {
     id: string;
@@ -18,6 +25,13 @@ interface Comment {
     timestamp_seconds: number;
     author_name: string;
     created_at: string;
+    parent_comment_id?: string | null;
+    is_deleted?: boolean;
+    is_edited?: boolean;
+    guest_session_id?: string | null;
+    author_id?: string | null;
+    reactions?: Reaction[];
+    replies?: Comment[];
 }
 
 interface CommentSidebarProps {
@@ -39,6 +53,8 @@ export function CommentSidebar({ projectId, videoId, currentTime, pausedAtTime, 
     const [guestSessionToken, setGuestSessionTokenState] = useState<string | null>(null);
     const [showNameModal, setShowNameModal] = useState(false);
     const [commentTimestamp, setCommentTimestamp] = useState(0);
+    const [replyingTo, setReplyingTo] = useState<Comment | null>(null);
+    const recentlyAddedIdsRef = useRef<Set<string>>(new Set());
     const scrollRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const supabase = createClient();
@@ -82,6 +98,8 @@ export function CommentSidebar({ projectId, videoId, currentTime, pausedAtTime, 
 
     // Realtime subscription
     useEffect(() => {
+        console.log('🔌 Setting up realtime subscription for video:', videoId);
+
         const channel = supabase
             .channel('comments')
             .on(
@@ -93,18 +111,105 @@ export function CommentSidebar({ projectId, videoId, currentTime, pausedAtTime, 
                     filter: `video_id=eq.${videoId}`,
                 },
                 (payload) => {
+                    console.log('📨 Received realtime comment:', payload);
+                    const newComment = payload.new as Comment;
+
+                    // Skip if this comment was recently added by us (optimistic update)
+                    if (recentlyAddedIdsRef.current.has(newComment.id)) {
+                        console.log('⏭️ Skipping own comment:', newComment.id);
+                        return;
+                    }
+
+                    console.log('✅ Adding realtime comment to UI:', newComment);
                     setComments((prev) => {
-                        if (prev.find(c => c.id === payload.new.id)) return prev;
-                        return [...prev, payload.new as Comment];
+                        // Check if comment already exists
+                        if (prev.find(c => c.id === newComment.id)) {
+                            console.log('⚠️ Comment already exists:', newComment.id);
+                            return prev;
+                        }
+                        return [...prev, newComment];
                     });
                 }
             )
-            .subscribe();
+            .subscribe((status) => {
+                console.log('📡 Realtime subscription status:', status);
+            });
 
         return () => {
+            console.log('🔌 Cleaning up realtime subscription');
             supabase.removeChannel(channel);
         };
     }, [videoId, supabase]);
+
+    // Realtime subscription for reactions
+    useEffect(() => {
+        console.log('🔌 Setting up realtime subscription for reactions');
+
+        const channel = supabase
+            .channel('reactions')
+            .on(
+                'postgres_changes',
+                {
+                    event: '*', // Listen to INSERT, UPDATE, DELETE
+                    schema: 'public',
+                    table: 'comment_reactions',
+                },
+                async (payload) => {
+                    console.log('📨 Received realtime reaction:', payload);
+
+                    // Refetch reactions for the affected comment
+                    const commentId = (payload.new as any)?.comment_id || (payload.old as any)?.comment_id;
+                    if (!commentId) return;
+
+                    try {
+                        const { data: reactions } = await supabase
+                            .from('comment_reactions')
+                            .select('*')
+                            .eq('comment_id', commentId) as any;
+
+                        // Aggregate reactions by type
+                        const reactionCounts = new Map<string, number>();
+                        if (reactions) {
+                            reactions.forEach((r: any) => {
+                                reactionCounts.set(r.reaction_type, (reactionCounts.get(r.reaction_type) || 0) + 1);
+                            });
+                        }
+
+                        const aggregatedReactions = Array.from(reactionCounts.entries()).map(([type, count]) => ({
+                            type,
+                            count,
+                            hasReacted: false, // TODO: Check if current user reacted
+                        }));
+
+                        // Update comment reactions recursively
+                        const updateReactions = (comment: Comment): Comment => {
+                            if (comment.id === commentId) {
+                                return { ...comment, reactions: aggregatedReactions };
+                            }
+                            if (comment.replies && comment.replies.length > 0) {
+                                return {
+                                    ...comment,
+                                    replies: comment.replies.map(updateReactions),
+                                };
+                            }
+                            return comment;
+                        };
+
+                        setComments(prev => prev.map(updateReactions));
+                    } catch (error) {
+                        console.error('Error fetching reactions:', error);
+                    }
+                }
+            )
+            .subscribe((status) => {
+                console.log('📡 Reactions subscription status:', status);
+            });
+
+        return () => {
+            console.log('🔌 Cleaning up reactions subscription');
+            supabase.removeChannel(channel);
+        };
+    }, [supabase]);
 
     // Shortcut to focus textarea
     useEffect(() => {
@@ -183,6 +288,183 @@ export function CommentSidebar({ projectId, videoId, currentTime, pausedAtTime, 
         }
     };
 
+    // Generate stable key for comments (doesn't change when temp ID becomes real ID)
+    const getCommentKey = (comment: Comment): string => {
+        // Use timestamp + author + created_at + first 20 chars of content as stable identifier
+        // created_at ensures uniqueness even for identical comments at same video timestamp
+        return `${comment.timestamp_seconds}-${comment.author_name}-${comment.created_at}-${comment.content.substring(0, 20)}`;
+    };
+
+    // Organize comments into threads
+    const organizeComments = (allComments: Comment[]): Comment[] => {
+        const commentMap = new Map<string, Comment>();
+        const rootComments: Comment[] = [];
+
+        // First pass: create map and initialize replies array
+        allComments.forEach(comment => {
+            commentMap.set(comment.id, { ...comment, replies: [] });
+        });
+
+        // Second pass: organize into threads
+        commentMap.forEach((comment) => {
+            if (comment.parent_comment_id) {
+                // This is a reply - add it to parent's replies
+                const parent = commentMap.get(comment.parent_comment_id);
+                if (parent) {
+                    parent.replies = parent.replies || [];
+                    parent.replies.push(comment);
+                } else {
+                    // Parent not found, treat as root
+                    rootComments.push(comment);
+                }
+            } else {
+                // This is a root comment
+                rootComments.push(comment);
+            }
+        });
+
+        // Sort function helper
+        const sortByDate = (a: Comment, b: Comment) =>
+            new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+
+        // Sort root comments:
+        // 1. Primary sort key: Video timestamp (rounded down to second)
+        // 2. Secondary sort key: Date created
+        // This ensures comments at "0:00" (0.1s, 0.5s, 0.9s) are all grouped together
+        // and sorted chronologically by when they were posted.
+        rootComments.sort((a, b) => {
+            const timeA = Math.floor(a.timestamp_seconds);
+            const timeB = Math.floor(b.timestamp_seconds);
+
+            if (timeA !== timeB) {
+                return timeA - timeB;
+            }
+            return sortByDate(a, b);
+        });
+
+        // Sort replies by created_at
+        commentMap.forEach(comment => {
+            if (comment.replies && comment.replies.length > 0) {
+                comment.replies.sort(sortByDate);
+            }
+        });
+
+        return rootComments;
+    };
+
+    const handleReact = async (commentId: string, reactionType: string) => {
+        // Helper function to update reactions recursively
+        const updateCommentReactions = (comment: Comment): Comment => {
+            if (comment.id === commentId) {
+                const reactions = comment.reactions || [];
+                const existingReaction = reactions.find(r => r.type === reactionType);
+
+                if (existingReaction) {
+                    // Toggle off - decrease count or remove
+                    if (existingReaction.count > 1) {
+                        return {
+                            ...comment,
+                            reactions: reactions.map(r =>
+                                r.type === reactionType
+                                    ? { ...r, count: r.count - 1, hasReacted: false }
+                                    : r
+                            ),
+                        };
+                    } else {
+                        // Remove reaction if count becomes 0
+                        return {
+                            ...comment,
+                            reactions: reactions.filter(r => r.type !== reactionType),
+                        };
+                    }
+                } else {
+                    // Add new reaction
+                    return {
+                        ...comment,
+                        reactions: [...reactions, { type: reactionType, count: 1, hasReacted: true }],
+                    };
+                }
+            }
+
+            // Check replies recursively
+            if (comment.replies && comment.replies.length > 0) {
+                return {
+                    ...comment,
+                    replies: comment.replies.map(updateCommentReactions),
+                };
+            }
+
+            return comment;
+        };
+
+        // Optimistically update UI immediately
+        setComments(prev => prev.map(updateCommentReactions));
+
+        try {
+            const response = await fetch(`/api/comments/${commentId}/react`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    reactionType,
+                    userId: null, // TODO: Add when auth is implemented
+                    guestSessionId,
+                }),
+            });
+
+            if (!response.ok) throw new Error('Failed to react');
+
+            const data = await response.json();
+            console.log('Reaction response:', data);
+        } catch (error) {
+            console.error('Error reacting to comment:', error);
+            // TODO: Rollback optimistic update on error
+        }
+    };
+
+    const handleDelete = async (commentId: string) => {
+        if (!confirm('Are you sure you want to delete this comment?')) return;
+
+        try {
+            const response = await fetch(`/api/comments/${commentId}/delete`, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    userId: null, // TODO: Add when auth is implemented
+                    guestSessionId,
+                }),
+            });
+
+            if (!response.ok) throw new Error('Failed to delete comment');
+
+            // Optimistically update UI
+            setComments(prev => prev.map(c =>
+                c.id === commentId
+                    ? { ...c, is_deleted: true, content: '[deleted]' }
+                    : c
+            ));
+        } catch (error) {
+            console.error('Error deleting comment:', error);
+            alert('Failed to delete comment');
+        }
+    };
+
+    const handleReply = (comment: Comment) => {
+        setReplyingTo(comment);
+        setCommentTimestamp(comment.timestamp_seconds);
+        textareaRef.current?.focus();
+    };
+
+    const cancelReply = () => {
+        setReplyingTo(null);
+    };
+
+    const canDeleteComment = (comment: Comment): boolean => {
+        return (
+            (guestSessionId && comment.guest_session_id === guestSessionId) ||
+            false // TODO: Add user_id check when auth is implemented
+        );
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!newComment.trim()) return;
@@ -193,9 +475,36 @@ export function CommentSidebar({ projectId, videoId, currentTime, pausedAtTime, 
             return;
         }
 
-        setIsSubmitting(true);
         const name = authorName || "Guest";
+        const commentContent = newComment.trim();
+        const timestamp = commentTimestamp;
 
+        // Create optimistic comment (appears instantly in UI)
+        const optimisticComment = {
+            id: `temp-${Date.now()}`, // Temporary ID
+            content: commentContent,
+            timestamp_seconds: timestamp,
+            author_name: name,
+            created_at: new Date().toISOString(),
+            project_id: projectId,
+            video_id: videoId,
+            parent_comment_id: replyingTo?.id || null,
+            guest_session_id: guestSessionId,
+        };
+
+        // Add to UI immediately (optimistic update)
+        setComments((prev) => [...prev, optimisticComment]);
+
+        // Clear input immediately for better UX
+        setNewComment("");
+        if (textareaRef.current) {
+            textareaRef.current.style.height = 'auto';
+        }
+        cancelReply(); // Clear reply state
+        onCommentAdded?.();
+
+        // Sync to database in background
+        setIsSubmitting(true);
         try {
             const response = await fetch('/api/comments/add', {
                 method: 'POST',
@@ -203,10 +512,11 @@ export function CommentSidebar({ projectId, videoId, currentTime, pausedAtTime, 
                 body: JSON.stringify({
                     projectId,
                     videoId,
-                    content: newComment,
-                    timestamp: commentTimestamp,
+                    content: commentContent,
+                    timestamp: timestamp,
                     authorName: name,
                     guestSessionId: guestSessionId,
+                    parentCommentId: replyingTo?.id || null,
                 }),
             });
 
@@ -214,18 +524,31 @@ export function CommentSidebar({ projectId, videoId, currentTime, pausedAtTime, 
 
             const { comment } = await response.json();
 
+            // Replace optimistic comment with real one from server
             if (comment) {
-                setComments((prev) => [...prev, comment]);
-            }
+                setComments((prev) =>
+                    prev.map((c) => (c.id === optimisticComment.id ? comment : c))
+                );
 
-            setNewComment("");
-            // Reset height
-            if (textareaRef.current) {
-                textareaRef.current.style.height = 'auto';
+                // Track this ID to prevent realtime subscription from adding it again
+                recentlyAddedIdsRef.current.add(comment.id);
+
+                // Clean up after 5 seconds
+                setTimeout(() => {
+                    recentlyAddedIdsRef.current.delete(comment.id);
+                }, 5000);
             }
-            onCommentAdded?.();
         } catch (error) {
             console.error("Error adding comment:", error);
+
+            // Rollback: Remove optimistic comment on error
+            setComments((prev) => prev.filter((c) => c.id !== optimisticComment.id));
+
+            // Restore the comment text so user can retry
+            setNewComment(commentContent);
+
+            // Show error feedback (optional - you can add a toast notification here)
+            alert("Failed to post comment. Please try again.");
         } finally {
             setIsSubmitting(false);
         }
@@ -269,50 +592,17 @@ export function CommentSidebar({ projectId, videoId, currentTime, pausedAtTime, 
                     </div>
                 ) : (
                     <div className="space-y-6">
-                        <AnimatePresence initial={false}>
-                            {comments.map((comment) => (
-                                <motion.div
-                                    key={comment.id}
-                                    initial={{ opacity: 0, y: 20 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    className="group relative flex gap-3"
-                                >
-                                    {/* Timeline Connector */}
-                                    <div className="absolute left-[15px] top-8 bottom-[-24px] w-px bg-zinc-800 group-last:hidden" />
-
-                                    <Avatar className="h-8 w-8 border border-zinc-900 shadow-sm ring-1 ring-white/10 shrink-0 mt-1">
-                                        <AvatarFallback className="bg-gradient-to-br from-blue-600 to-indigo-600 text-[10px] font-bold text-white">
-                                            {comment.author_name.substring(0, 2).toUpperCase()}
-                                        </AvatarFallback>
-                                    </Avatar>
-
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-baseline justify-between mb-1">
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-sm font-bold text-zinc-200 truncate">
-                                                    {comment.author_name}
-                                                </span>
-                                                <button
-                                                    className="flex items-center gap-1 text-[10px] font-mono font-medium text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded hover:bg-blue-500/20 transition-colors cursor-pointer"
-                                                    onClick={() => {
-                                                        onSeek?.(comment.timestamp_seconds);
-                                                    }}
-                                                >
-                                                    {formatDuration(comment.timestamp_seconds)}
-                                                </button>
-                                            </div>
-                                            <span className="text-[10px] text-zinc-600">
-                                                {new Date(comment.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                            </span>
-                                        </div>
-
-                                        <div className="text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap break-words overflow-wrap-anywhere max-w-full">
-                                            {comment.content}
-                                        </div>
-                                    </div>
-                                </motion.div>
-                            ))}
-                        </AnimatePresence>
+                        {organizeComments(comments).map((comment) => (
+                            <CommentItem
+                                key={getCommentKey(comment)}
+                                comment={comment}
+                                canDelete={canDeleteComment(comment)}
+                                onSeek={onSeek}
+                                onReply={handleReply}
+                                onReact={handleReact}
+                                onDelete={handleDelete}
+                            />
+                        ))}
                     </div>
                 )}
             </div>
@@ -374,6 +664,28 @@ export function CommentSidebar({ projectId, videoId, currentTime, pausedAtTime, 
                         </Button>
                     </div>
                 </div>
+
+                {/* Reply Indicator */}
+                {replyingTo && (
+                    <div className="mb-2 px-1 flex items-center justify-between bg-blue-500/10 border border-blue-500/20 rounded-lg p-2">
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                            <span className="text-xs text-blue-400">Replying to</span>
+                            <span className="text-xs font-bold text-blue-300 truncate">
+                                {replyingTo.author_name}
+                            </span>
+                            <span className="text-[10px] text-blue-400/60">
+                                at {formatDuration(replyingTo.timestamp_seconds)}
+                            </span>
+                        </div>
+                        <Button
+                            size="icon"
+                            onClick={cancelReply}
+                            className="h-5 w-5 bg-transparent hover:bg-blue-500/20 p-0"
+                        >
+                            <X className="h-3 w-3 text-blue-400" />
+                        </Button>
+                    </div>
+                )}
 
                 {/* Full Width Textarea */}
                 <Textarea

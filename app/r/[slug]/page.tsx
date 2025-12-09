@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { notFound } from 'next/navigation';
 import { ReviewInterface } from '@/components/project/review-interface';
+import { ProjectHeader } from '@/components/project/project-header';
 
 interface ReviewPageProps {
     params: {
@@ -62,31 +63,56 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
             .from('comments')
             .select('*')
             .eq('video_id', activeVideo.id)
-            .order('timestamp_seconds', { ascending: true });
+            .order('timestamp_seconds', { ascending: true })
+            .order('created_at', { ascending: true });
 
         if (comments) {
-            initialComments = comments;
+            // Fetch reactions for all comments
+            const commentIds = (comments as any[]).map((c: any) => c.id);
+            const { data: reactions } = await supabase
+                .from('comment_reactions')
+                .select('*')
+                .in('comment_id', commentIds) as any;
+
+            // Aggregate reactions by comment
+            const reactionsByComment = new Map<string, any[]>();
+            if (reactions) {
+                reactions.forEach((reaction: any) => {
+                    if (!reactionsByComment.has(reaction.comment_id)) {
+                        reactionsByComment.set(reaction.comment_id, []);
+                    }
+                    reactionsByComment.get(reaction.comment_id)!.push(reaction);
+                });
+            }
+
+            // Add reactions to comments
+            initialComments = (comments as any[]).map((comment: any) => {
+                const commentReactions = reactionsByComment.get(comment.id) || [];
+
+                // Aggregate reactions by type
+                const reactionCounts = new Map<string, number>();
+                commentReactions.forEach((r: any) => {
+                    reactionCounts.set(r.reaction_type, (reactionCounts.get(r.reaction_type) || 0) + 1);
+                });
+
+                const reactions = Array.from(reactionCounts.entries()).map(([type, count]) => ({
+                    type,
+                    count,
+                    hasReacted: false, // TODO: Check if current user has reacted
+                }));
+
+                return {
+                    ...comment,
+                    reactions,
+                };
+            });
         }
     }
 
     return (
         <div className="h-screen flex flex-col bg-black text-white overflow-hidden">
             {/* Header */}
-            <header className="border-b border-white/10 bg-zinc-900/50 backdrop-blur-md shrink-0 z-50">
-                <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                        <h1 className="text-lg font-bold truncate max-w-md">{project.title}</h1>
-                        {project.is_temp && project.expires_at && (
-                            <span className="text-xs font-mono text-yellow-500 bg-yellow-500/10 px-2 py-1 rounded-full">
-                                Expires in 24h
-                            </span>
-                        )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <button className="text-sm font-medium text-zinc-400 hover:text-white transition">Share</button>
-                    </div>
-                </div>
-            </header>
+            <ProjectHeader project={project} />
 
             <div className="flex-1 overflow-hidden">
                 <div className="container mx-auto px-4 py-6 h-full">

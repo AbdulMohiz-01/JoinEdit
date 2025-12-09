@@ -178,6 +178,7 @@ CREATE POLICY "Project owners can delete any comment"
     )
   );
 
+
 -- Function to handle new user signup
 CREATE OR REPLACE FUNCTION public.handle_new_user() 
 RETURNS TRIGGER AS $$
@@ -192,3 +193,10 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 CREATE OR REPLACE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- ENABLE REALTIME FOR COMMENTS
+-- This allows real-time subscriptions to work
+ALTER PUBLICATION supabase_realtime ADD TABLE public.comments;
+
+-- Enable realtime for the comments table
+ALTER TABLE public.comments REPLICA IDENTITY FULL;
