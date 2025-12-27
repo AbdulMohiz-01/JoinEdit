@@ -49,6 +49,7 @@ export function CommentSidebar({ projectId, videoId, currentTime, pausedAtTime, 
     const [newComment, setNewComment] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [authorName, setAuthorName] = useState("");
+    const [userId, setUserId] = useState<string | null>(null);
     const [guestSessionId, setGuestSessionId] = useState<string | null>(null);
     const [guestSessionToken, setGuestSessionTokenState] = useState<string | null>(null);
     const [showNameModal, setShowNameModal] = useState(false);
@@ -59,9 +60,18 @@ export function CommentSidebar({ projectId, videoId, currentTime, pausedAtTime, 
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const supabase = createClient();
 
-    // Load guest session on mount
+    // Check for authenticated user or guest session
     useEffect(() => {
-        const loadGuestSession = async () => {
+        const checkAuth = async () => {
+            // 1. Check for logged-in user
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+                setUserId(user.id);
+                setAuthorName(user.user_metadata?.full_name || user.email?.split('@')[0] || "User");
+                return;
+            }
+
+            // 2. Fallback to guest session
             const token = getGuestSessionToken();
             if (token) {
                 try {
@@ -77,8 +87,8 @@ export function CommentSidebar({ projectId, videoId, currentTime, pausedAtTime, 
                 }
             }
         };
-        loadGuestSession();
-    }, [projectId]);
+        checkAuth();
+    }, [projectId, supabase]);
 
     // Auto-set timestamp when video is paused
     useEffect(() => {
@@ -406,7 +416,7 @@ export function CommentSidebar({ projectId, videoId, currentTime, pausedAtTime, 
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     reactionType,
-                    userId: null, // TODO: Add when auth is implemented
+                    userId: userId || null,
                     guestSessionId,
                 }),
             });
@@ -429,7 +439,7 @@ export function CommentSidebar({ projectId, videoId, currentTime, pausedAtTime, 
                 method: 'DELETE',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    userId: null, // TODO: Add when auth is implemented
+                    userId: userId || null,
                     guestSessionId,
                 }),
             });
@@ -461,7 +471,8 @@ export function CommentSidebar({ projectId, videoId, currentTime, pausedAtTime, 
     const canDeleteComment = (comment: Comment): boolean => {
         return (
             (guestSessionId && comment.guest_session_id === guestSessionId) ||
-            false // TODO: Add user_id check when auth is implemented
+            (userId && comment.author_id === userId) ||
+            false
         );
     };
 
@@ -469,8 +480,8 @@ export function CommentSidebar({ projectId, videoId, currentTime, pausedAtTime, 
         e.preventDefault();
         if (!newComment.trim()) return;
 
-        // If no session, show modal first
-        if (!authorName && !guestSessionId) {
+        // If no session and not logged in, show modal first
+        if (!authorName && !guestSessionId && !userId) {
             setShowNameModal(true);
             return;
         }
@@ -490,6 +501,7 @@ export function CommentSidebar({ projectId, videoId, currentTime, pausedAtTime, 
             video_id: videoId,
             parent_comment_id: replyingTo?.id || null,
             guest_session_id: guestSessionId,
+            author_id: userId,
         };
 
         // Add to UI immediately (optimistic update)
@@ -516,6 +528,7 @@ export function CommentSidebar({ projectId, videoId, currentTime, pausedAtTime, 
                     timestamp: timestamp,
                     authorName: name,
                     guestSessionId: guestSessionId,
+                    userId: userId,
                     parentCommentId: replyingTo?.id || null,
                 }),
             });

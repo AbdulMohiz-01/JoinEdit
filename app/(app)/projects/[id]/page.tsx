@@ -1,37 +1,26 @@
 
 import { createClient } from "@/lib/supabase/server";
+import { redirect } from "next/navigation";
 import { notFound } from "next/navigation";
 import { ReviewInterface } from "@/components/project/review-interface";
+import { ShareButton } from "@/components/project/share-button";
 
-export default async function PublicProjectPage({
+export default async function ProjectPage({
     params,
 }: {
-    params: Promise<{ slug: string }>;
+    params: Promise<{ id: string }>;
 }) {
-    const { slug } = await params;
+    const { id } = await params;
     const supabase = await createClient();
 
-    // Fetch project by share_slug
     const { data: project } = await supabase
         .from("projects")
         .select("*, videos(*)")
-        .eq("share_slug", slug)
+        .eq("id", id)
         .single() as any;
 
     if (!project) {
         notFound();
-    }
-
-    // Check expiration if it's a temp project
-    if (project.expires_at && new Date(project.expires_at) < new Date()) {
-        return (
-            <div className="flex h-screen items-center justify-center bg-black text-white">
-                <div className="text-center">
-                    <h1 className="text-2xl font-bold mb-2">Project Expired</h1>
-                    <p className="text-zinc-400">This project link has expired and is no longer available.</p>
-                </div>
-            </div>
-        );
     }
 
     // Fetch comments for the first video
@@ -51,13 +40,18 @@ export default async function PublicProjectPage({
     return (
         <div className="min-h-screen bg-black text-white p-8">
             <div className="w-full h-[calc(100vh-8rem)]">
-                <header className="mb-8">
-                    <h1 className="text-3xl font-bold truncate" title={project.title}>
-                        {project.title}
-                    </h1>
-                    <p className="text-zinc-400 mt-1 truncate">
-                        {project.description || "Shared Project"}
-                    </p>
+                <header className="mb-8 flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                        <h1 className="text-3xl font-bold truncate" title={project.title}>
+                            {project.title}
+                        </h1>
+                        <p className="text-zinc-400 text-sm mt-1 truncate">
+                            {project.description || `Project ID: ${project.id}`}
+                        </p>
+                    </div>
+                    <div className="shrink-0">
+                        <ShareButton shareSlug={project.share_slug} />
+                    </div>
                 </header>
 
                 <ReviewInterface

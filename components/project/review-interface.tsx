@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef } from "react";
 import { VideoPlayer, VideoPlayerRef } from "@/components/project/video-player";
 import { CommentSidebar } from "@/components/project/comment-sidebar";
+import { AlertCircle } from "lucide-react";
 
 interface ReviewInterfaceProps {
     project: any;
@@ -35,6 +36,21 @@ export function ReviewInterface({ project, video, initialComments = [] }: Review
         }
     }, []);
 
+    // Handle missing video
+    if (!video || !video.video_url) {
+        return (
+            <div className="flex items-center justify-center h-96 rounded-xl border border-white/10 bg-zinc-900/30">
+                <div className="text-center">
+                    <AlertCircle className="h-12 w-12 text-zinc-500 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-white mb-2">No Video Found</h3>
+                    <p className="text-sm text-zinc-400">
+                        This project doesn't have any videos yet.
+                    </p>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
             {/* Main Content: Video Player */}
@@ -49,9 +65,9 @@ export function ReviewInterface({ project, video, initialComments = [] }: Review
                     />
                 </div>
                 <div className="p-4 rounded-xl border border-white/10 bg-zinc-900/30">
-                    <h2 className="text-xl font-bold mb-1">{video.title}</h2>
+                    <h2 className="text-xl font-bold mb-1">{video.title || "Untitled Video"}</h2>
                     <p className="text-sm text-zinc-500">
-                        {video.provider} • {Math.floor(duration / 60)}:{(Math.floor(duration) % 60).toString().padStart(2, '0')}
+                        {video.provider || "Unknown"} • {Math.floor(duration / 60)}:{(Math.floor(duration) % 60).toString().padStart(2, '0')}
                     </p>
                 </div>
             </div>

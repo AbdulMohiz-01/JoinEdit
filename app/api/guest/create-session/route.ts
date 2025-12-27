@@ -16,10 +16,10 @@ export async function POST(request: Request) {
 
         const supabase = createAdminClient();
 
-        // Get project expiry time
+        // Get project expiry time and temp status
         const { data: project } = await supabase
             .from('projects')
-            .select('expires_at')
+            .select('expires_at, is_temp')
             .eq('id', projectId)
             .single() as any;
 
@@ -33,6 +33,12 @@ export async function POST(request: Request) {
         // Generate session token
         const sessionToken = randomUUID();
 
+        // For pro projects (is_temp = false), set expiry to 1 year from now
+        // For temp projects, use the project's expires_at
+        const sessionExpiresAt = project.is_temp && project.expires_at
+            ? project.expires_at
+            : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(); // 1 year
+
         // Create guest session
         const { data: session, error } = await supabase
             .from('guest_sessions')
@@ -40,7 +46,7 @@ export async function POST(request: Request) {
                 project_id: projectId,
                 guest_name: name,
                 cookie_token: sessionToken,
-                expires_at: project.expires_at,
+                expires_at: sessionExpiresAt,
             } as any)
             .select()
             .single() as any;

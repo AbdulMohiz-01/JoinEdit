@@ -107,6 +107,19 @@
   }
 }
 
+/* Bitcount Grid Single utility (use where the font is available) */
+.bitcount-grid-single {
+  font-family: "Bitcount Grid Single", system-ui;
+  font-optical-sizing: auto;
+  font-weight: 700;
+  font-style: normal;
+  font-variation-settings:
+    "slnt" 0,
+    "CRSV" 0.5,
+    "ELSH" 0,
+    "ELXP" 0;
+}
+
 /* Custom Scrollbar */
 .hover-scroll {
   scrollbar-color: transparent transparent;
