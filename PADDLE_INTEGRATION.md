@@ -5,7 +5,7 @@
 ### 1. **Environment Configuration**
 - Added Paddle environment variables to `.env`:
   ```bash
-  PADDLE_API_KEY=pdl_sdbx_apikey_01kdbgktnr317cmcmd5cx6gt17_ESX5MM66ZqVDWqnZHjrfkJ_AJT
+  PADDLE_API_KEY=yourapikey
   PADDLE_WEBHOOK_SECRET=your_paddle_webhook_secret  # To be added later
   NEXT_PUBLIC_PADDLE_ENVIRONMENT=sandbox
   NEXT_PUBLIC_PADDLE_PRICE_ID=pri_01kdd0ms0ejxqx1m7vh7006j7f
